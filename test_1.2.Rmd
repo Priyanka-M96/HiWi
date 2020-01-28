@@ -1,0 +1,716 @@
+---
+title: "test_1.2"
+author: "Priyanka"
+date: "26/10/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(mlr)
+
+mlr_data <- as.data.frame(scale(df[,4:157]))
+mlr_data$label <- factor(df$label)
+
+NAN_col <- sapply(mlr_data, function(x) all(is.nan(x)))
+mlr_data <- mlr_data[,!NAN_col]
+
+task <- makeClassifTask(data = mlr_data,target = "label")
+rdesc = makeResampleDesc("LOO")
+
+```
+
+```{r}
+set.seed(123)
+lrn <- makeLearner("classif.randomForest",predict.type = "prob")
+
+rf_param <- makeParamSet(
+makeIntegerParam("ntree",lower = 50, upper = 500),
+makeIntegerParam("mtry",lower = 3,upper = 8)
+)
+
+rancontrol <- makeTuneControlGrid(tune.threshold = TRUE)
+rf_tune <- tuneParams(learner = lrn, resampling = rdesc,task = task, par.set = rf_param, control = rancontrol,measure = acc)
+
+```
+
+```{r}
+hped <- generateHyperParsEffectData(rf_tune)
+plotHyperParsEffect(hped, x="ntree", y="mtry", z="acc.test.mean",
+                    plot.type="heatmap", interpolate = "regr.randomForest")
+
+```
+
+```{r}
+
+lrn_allF <- makeLearner("classif.randomForest",predict.type = "prob",predict.threshold = rf_tune$threshold,par.vals = rf_tune$x)
+
+
+#lrn_allF_2 <- makeFeatSelWrapper(lrn_allF,resampling = rdesc,control = makeFeatSelControlRandom(maxit = 10),show.info = FALSE)
+
+mod_2 <- mlr::train(lrn_allF,task)
+res <- resample(lrn_allF,task,rdesc,show.info = TRUE,models = TRUE,measures = list(acc, setAggregation(acc,test.sd)))
+res
+```
+
+
+```{r}
+library(iml)
+predictor = Predictor$new(mod_2, data = df[,4:157], y = df$label)
+imp = FeatureImp$new(predictor, loss = "ce")
+plot(imp)
+
+```
+
+
+
+```{r}
+
+caret::confusionMatrix(res$pred$data$truth,res$pred$data$response)
+
+```
+
+
+```{r}
+library(mlr)
+
+fil_val <- generateFilterValuesData(task,method = "randomForestSRC_importance")
+fil_val
+
+```
+
+```{r}
+
+fil_val2 <- generateFilterValuesData(task,method = c("FSelectorRcpp_information.gain"))
+fil_val2
+
+fil_val3 <- generateFilterValuesData(task,method = c("FSelector_chi.squared"))
+fil_val3
+
+```
+<!-- discretise the values -->
+
+
+<!-- ```{r} -->
+
+<!-- chi_group_data <- fil_val3$data[,c(1,4)] -->
+
+<!-- chi_group_data$value <- round(chi_group_data$value,digits = 2) -->
+<!-- chi_group_data <- chi_group_data[which(chi_group_data$value != 0),] -->
+
+<!-- feat_grouped_chi <- sqldf::sqldf("Select * From chi_group_data Group By value") -->
+
+<!-- ``` -->
+
+
+
+
+```{r}
+
+plotFilterValues(fil_val2)
+plotFilterValues(fil_val3)
+
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+
+#example_data <- table(fil)
+y <- data.frame(fil_val2$data$name,fil_val2$data$value)
+y <- y[which(y$fil_val2.data.value != 0),]
+y$fil_val2.data.name <- factor(y$fil_val2.data.name, levels = y$fil_val2.data.name[order(y$fil_val2.data.value)])
+
+y %>% 
+    ggplot(aes(x = fil_val2.data.name, y = fil_val2.data.value)) +
+    geom_col() + coord_flip() 
+
+
+```
+
+```{r}
+
+library(tidyverse)
+library(ggplot2)
+
+#example_data <- table(fil)
+z <- data.frame(fil_val3$data$name,fil_val3$data$value)
+z <- z[which(z$fil_val3.data.value != 0),]
+z$fil_val3.data.name <- factor(z$fil_val3.data.name, levels = z$fil_val3.data.name[order(z$fil_val3.data.value)])
+
+z %>% 
+    ggplot(aes(x = fil_val3.data.name, y = fil_val3.data.value)) +
+    geom_col() + coord_flip() 
+
+```
+
+
+
+
+```{r}
+
+# lrn_IG = makeFilterWrapper(learner = "classif.randomForest",fw.method= "FSelectorRcpp_information.gain")
+# #ps = makeParamSet(makeNumericParam("fw.perc", lower = 0, upper = 1),
+# #                  makeIntegerLearnerParam(id = "fw.abs", lower = 0),
+# #                  makeNumericLearnerParam(id = "fw.threshold"))
+# rdesc = makeResampleDesc("LOO")
+# res = tuneParams(lrn_IG,task=task_full,resampling=rdesc,par.set=ps,control=makeTuneControlRandom(maxit = 5))
+
+```
+
+```{r}
+library(mlr)
+
+IG_data <- mlr_data[,which(fil_val2$data$value != 0)]
+#IG_data <- mlr_data[,feat_grouped_chi$name]
+IG_data$label <- mlr_data$label
+task.2 <- makeClassifTask(data = IG_data,target = "label")
+rdesc = makeResampleDesc("LOO")
+
+```
+
+
+
+
+```{r}
+set.seed(123)
+
+lrn <- makeLearner("classif.randomForest",predict.type = "prob")
+
+rf_param <- makeParamSet(
+makeIntegerParam("ntree",lower = 50, upper = 500),
+makeIntegerParam("mtry",lower = 1,upper = 8)
+)
+
+rancontrol <- makeTuneControlGrid(tune.threshold = TRUE)
+rf_tune.2 <- tuneParams(learner = lrn, resampling = rdesc,task = task.2, par.set = rf_param, control = rancontrol,measure = acc)
+
+```
+
+```{r}
+library(mlr)
+
+lrn_allF_IG.2 <- makeLearner("classif.randomForest",predict.type = "prob",predict.threshold = rf_tune.2$threshold,par.vals = rf_tune.2$x)
+
+mod_IG.2 <- mlr::train(lrn_allF_IG.2,task.2)
+
+res_2_IG.2 <- resample(lrn_allF_IG.2,task.2,rdesc,models = TRUE,measures = list(acc, setAggregation(acc,test.sd)),show.info = TRUE)
+res_2_IG.2
+
+```
+
+
+```{r}
+
+caret::confusionMatrix(res_2_IG.2$pred$data$truth,res_2_IG.2$pred$data$response)
+
+```
+
+```{r}
+library(iml)
+
+predictor = Predictor$new(mod_IG.2, data = df[,4:(length(df))-1], y = df$label)
+imp = FeatureImp$new(predictor, loss = "ce")
+plot(imp)
+
+```
+
+```{r}
+
+imp$results
+
+```
+
+```{r}
+a <- which(imp$results$importance > 1)
+IG_df_impF <- mlr_data[,c(imp$results$feature[c(a)])]
+
+```
+
+```{r}
+
+IG_new_data <- data.frame(imp$results$feature ,imp$results$importance)
+colnames(IG_new_data) <- c("feat", "importance")
+feat_grouped_IG <- sqldf::sqldf("Select * From IG_new_data Group By importance")
+
+```
+
+```{r}
+
+IG_df_impF <- mlr_data[,c(feat_grouped_IG$feat)]
+
+```
+
+
+```{r}
+library(mlr)
+IG_df_impF$label <- mlr_data$label
+
+R_task <- mlr::makeClassifTask(data = IG_df_impF,target = "label")
+
+res_2_IG.3 <- resample(lrn_allF_IG.2,R_task,rdesc,models = TRUE,show.info = TRUE)
+res_2_IG.3
+```
+
+```{r}
+
+caret::confusionMatrix(res_2_IG.3$pred$data$truth,res_2_IG.3$pred$data$response)
+
+```
+
+```{r}
+library(GGally)
+IG_data <- mlr_data[,which(fil_val2$data$value != 0)]
+GGally::ggcorr(IG_data,hjust = 1.00,layout.exp = 20,size = 3,method = c("all.obs","spearman"))
+
+```
+
+
+```{r}
+library(caret)
+
+IG_cor = cor(IG_data,method = "spearman")
+hc <- caret::findCorrelation(IG_cor,cutoff = 0.9)
+hc <- sort(hc)
+reduced_Data = IG_data[,-c(hc)]
+print (reduced_Data)
+```
+
+```{r}
+set.seed(123)
+reduced_Data$label <- mlr_data$label
+
+task_IG <- makeClassifTask(data = reduced_Data,target = 'label')
+res_2_IG.3 <- resample(lrn_allF_IG.2,task_IG,rdesc,models = TRUE,show.info = FALSE)
+res_2_IG.3
+```
+
+```{r}
+
+caret::confusionMatrix(res_2_IG.3$pred$data$truth,res_2_IG.3$pred$data$response)
+
+```
+Chi Square
+
+```{r}
+library(mlr)
+
+Chi_data <- mlr_data[,which(fil_val3$data$value != 0)]
+Chi_data$label <- mlr_data$label
+task.3 <- makeClassifTask(data = Chi_data,target = "label")
+rdesc = makeResampleDesc("LOO")
+
+```
+
+```{r}
+set.seed(123)
+lrn <- makeLearner("classif.randomForest",predict.type = "prob")
+
+rf_param <- makeParamSet(
+makeIntegerParam("ntree",lower = 50, upper = 500),
+makeIntegerParam("mtry",lower = 3,upper = 8)
+)
+
+rancontrol <- makeTuneControlGrid(tune.threshold = TRUE)
+rf_tune.3 <- tuneParams(learner = lrn, resampling = rdesc,task = task.3, par.set = rf_param, control = rancontrol,measure = acc)
+
+```
+
+```{r}
+
+lrn_allF_Chi <- makeLearner("classif.randomForest",predict.type = "prob",predict.threshold = rf_tune.3$threshold,par.vals = rf_tune.3$x)
+
+mod_Chi <- mlr::train(lrn_allF_Chi,task.3)
+
+res_2_Chi <- resample(lrn_allF_Chi,task.3,rdesc,models = TRUE,show.info = TRUE,measures = list(acc, setAggregation(acc,test.sd)))
+res_2_Chi
+```
+
+
+
+```{r}
+
+predictor = Predictor$new(mod_Chi, data = df[,colnames(Chi_data[,1:(length(Chi_data)-1)])], y = Chi_data$label)
+imp = FeatureImp$new(predictor, loss = "ce")
+plot(imp)
+
+```
+
+```{r}
+
+imp$results
+
+```
+
+```{r}
+a <- which(imp$results$importance > 1)
+Chi_df_impF <- mlr_data[,c(imp$results$feature[c(a)])]
+
+```
+
+```{r}
+
+Chi_new_data <- data.frame(imp$results$feature ,imp$results$importance)
+colnames(Chi_new_data) <- c("feat", "importance")
+feat_grouped_chi <- sqldf::sqldf("Select * From Chi_new_data Group By importance")
+
+```
+
+```{r}
+
+Chi_df_impF <- mlr_data[,c(feat_grouped_chi$feat)]
+
+```
+
+
+```{r}
+library(mlr)
+Chi_df_impF$label <- mlr_data$label
+
+R_task <- mlr::makeClassifTask(data = Chi_df_impF,target = "label")
+
+res_2_Chi <- resample(lrn_allF_Chi,R_task,rdesc,models = TRUE,show.info = TRUE)
+res_2_Chi
+```
+
+```{r}
+
+caret::confusionMatrix(res_2_Chi$pred$data$truth,res_2_Chi$pred$data$response)
+
+```
+
+
+
+
+```{r}
+library(GGally)
+Chi_data <- mlr_data[,which(fil_val3$data$value != 0)]
+GGally::ggcorr(Chi_data,hjust = 1.00,layout.exp = 20,size = 3,method = c("all.obs","spearman"))
+
+```
+
+
+```{r}
+library(caret)
+
+Chi_cor = cor(Chi_data,method = "spearman")
+hc <- caret::findCorrelation(Chi_cor,cutoff = 0.9)
+hc <- sort(hc)
+reduced_Data = Chi_data[,-c(hc)]
+print (reduced_Data)
+```
+
+```{r}
+set.seed(123)
+reduced_Data$label <- mlr_data$label
+
+task_chi <- makeClassifTask(data = reduced_Data,target = 'label')
+res_2_Chi.2 <- resample(lrn_allF_Chi,task_chi,rdesc,models = TRUE,show.info = FALSE)
+
+```
+
+
+
+```{r}
+
+caret::confusionMatrix(res_2_Chi$pred$data$truth,res_2_Chi$pred$data$response)
+
+```
+
+<!-- GA -->
+
+<!-- ```{r} -->
+<!-- library(mlr) -->
+<!-- ctrl = makeFeatSelControlGA(maxit = 20L) -->
+<!-- sfeats_new3 = selectFeatures(learner = "classif.randomForest", task = task, resampling = rdesc, -->
+<!--   control = ctrl, show.info = FALSE) -->
+<!-- sfeats_new3 -->
+
+<!-- ``` -->
+
+<!-- ```{r} -->
+
+<!-- sfeats_new3$x -->
+
+<!-- ``` -->
+
+
+
+Random
+
+```{r}
+library(mlr)
+
+task <- makeClassifTask(data = mlr_data,target = "label")
+rdesc = makeResampleDesc("LOO")
+
+
+```
+
+```{r}
+
+
+lrn <- makeLearner("classif.randomForest",predict.type = "prob",predict.threshold = rf_tune$threshold,par.vals = rf_tune$x)
+
+lrn_allF_3 <- makeFeatSelWrapper(learner = lrn,resampling = rdesc,control = makeFeatSelControlRandom(maxit = 20L),show.info = FALSE)
+
+mod_3 <- mlr::train(lrn_allF_3,task = task)
+
+
+ sfeat_3 <- getFeatSelResult(mod_3)
+ sfeat_3
+
+```
+
+```{r}
+
+sfeat_3$x
+
+```
+
+```{r}
+
+library(iml)
+predictor_3 <- Predictor$new(mod_3, data = df[,sfeat_3$x], y = df$label)
+imp <- FeatureImp$new(predictor_3, loss = "ce")
+plot(imp)
+
+```
+
+```{r}
+a <- which(imp$results$importance > 1)
+Random_df_impF <- random_data[,c(imp$results$feature[c(a)])]
+
+```
+
+```{r}
+
+Random_new_data <- data.frame(imp$results$feature ,imp$results$importance)
+colnames(Random_new_data) <- c("feat", "importance")
+feat_grouped_rand <- sqldf::sqldf("Select * From Random_new_data Group By importance")
+
+```
+
+```{r}
+
+Random_df_impF <- mlr_data[,c(feat_grouped_rand$feat)]
+
+```
+
+```{r}
+
+Random_df <- mlr_data[,sfeat_3$x]
+#library(Hmisc)
+#library(corrgram)
+#rcorr(as.matrix(GA_df),type = "pearson")
+
+# corrgram(GA_df, order=NULL, lower.panel=panel.shade,
+#   upper.panel=NULL, text.panel=panel.txt,
+#   main="GA")
+
+library(GGally)
+
+GGally::ggcorr(Random_df,hjust = 1.00,layout.exp = 20,size = 3,method = c("all.obs","spearman"))
+
+```
+
+
+```{r}
+library(caret)
+
+Random_cor = cor(Random_df,method = "spearman")
+hc <- caret::findCorrelation(Random_cor,cutoff = 0.9)
+hc <- sort(hc)
+reduced_Data = Random_df[,-c(hc)]
+print (reduced_Data)
+
+```
+
+
+```{r}
+library(mlr)
+Random_df_impF$label <- mlr_data$label
+
+R_task <- mlr::makeClassifTask(data = Random_df_impF,target = "label")
+```
+
+```{r}
+
+res_3 <- resample(lrn_allF_3,task,rdesc,models = TRUE,show.info = TRUE,measures = list(acc, setAggregation(acc,test.sd)))
+res_3
+```
+
+```{r}
+
+caret::confusionMatrix(res_3$pred$data$truth,res_3$pred$data$response)
+
+```
+
+
+```{r}
+library(flacco)
+lapply(res_3$models,getFeatSelResult)
+featureList = lapply(res_3$models, 
+  function(modl) getFeatSelResult(modl)$x)
+
+plotFeatureImportance(featureList)
+
+
+```
+
+
+```{r}
+
+# x <- getFeatureImportance(res_3$models)
+# xx <- as.data.frame(x$res[which(x$res != 0)])
+# as.list(sort(xx,decreasing = TRUE))
+```
+
+```{r}
+res.sfeats_3 <- sapply(res_3$models,getFilteredFeatures)
+table(res.sfeats_3)
+
+```
+
+
+GA
+
+```{r}
+
+lrn_allF_4 <- makeFeatSelWrapper("classif.randomForest",resampling = rdesc,control = makeFeatSelControlGA(maxit = 10L),show.info = FALSE)
+mod_4 <- mlr::train(lrn_allF_4,task = task)
+
+sfeat_4 <- getFeatSelResult(mod_4)
+sfeat_4
+
+```
+
+```{r}
+
+sfeat_4$x
+
+```
+
+```{r}
+
+library(iml)
+predictor_4 <- Predictor$new(mod_4, data = df[,sfeat_4$x], y = df$label)
+imp <- FeatureImp$new(predictor_4, loss = "ce")
+plot(imp)
+
+```
+
+```{r}
+a <- which(imp$results$importance > 0.7)
+GA_df_impF <- mlr_data[,c(imp$results$feature[c(a)])]
+
+```
+
+```{r}
+
+GA_new_data <- data.frame(imp$results$feature ,imp$results$importance)
+colnames(GA_new_data) <- c("feat", "importance")
+feat_grouped <- sqldf::sqldf("Select * From GA_new_data Group By importance")
+
+```
+
+```{r}
+
+GA_df_impF <- mlr_data[,c(feat_grouped$feat)]
+
+```
+
+
+
+Corr in GA
+
+```{r}
+
+GA_df <- mlr_data[,sfeat_4$x]
+#library(Hmisc)
+#library(corrgram)
+#rcorr(as.matrix(GA_df),type = "pearson")
+
+# corrgram(GA_df, order=NULL, lower.panel=panel.shade,
+#   upper.panel=NULL, text.panel=panel.txt,
+#   main="GA")
+
+library(GGally)
+
+GGally::ggcorr(GA_df,hjust = 1.00,layout.exp = 20,size = 3,method = c("all.obs","spearman"))
+
+```
+
+```{r}
+
+library(caret)
+
+GA_cor = cor(x = GA_df,method = "spearman")
+hc <- caret::findCorrelation(GA_cor,cutoff = 0.9)
+hc <- sort(hc)
+reduced_Data = GA_df[,-c(hc)]
+print (reduced_Data)
+
+```
+
+
+
+
+```{r}
+library(mlr)
+GA_df_impF$label <- mlr_data$label
+
+GA_task <- mlr::makeClassifTask(data = GA_df_impF,target = "label")
+```
+
+```{r}
+res_4 <- resample(lrn_allF_4,task,rdesc,models = TRUE,show.info = TRUE,measures = list(acc, setAggregation(acc,test.sd)))
+res_4
+```
+
+```{r}
+
+caret::confusionMatrix(res_4$pred$data$truth,res_4$pred$data$response)
+
+```
+
+
+```{r}
+library(flacco)
+lapply(res_4$models,getFeatSelResult)
+featureList = lapply(res_4$models, 
+  function(modl) getFeatSelResult(modl)$x)
+
+plotFeatureImportance(featureList)
+
+```
+
+```{r}
+
+x <- getFeatureImportance(res_4$models[[3]])
+xx <- as.data.frame(x$res[which(x$res != 0)])
+as.list(sort(xx,decreasing = TRUE))
+
+```
+
+```{r}
+
+library("spFSR")
+perf.measure  <- acc
+set.seed(123)
+
+lrn_allF_spsa <- makeFilterWrapper(learner="classif.randomForest",fw.method="FSelectorRcpp_information.gain",fw.abs=2)
+
+spsaMod <- spFeatureSelection(task,lrn_allF_spsa,perf.measure,num.features.selected = 50)
+
+```
+
+```{r}
+plotImportance(spsaMod)
+```
+
+
